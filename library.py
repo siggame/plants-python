@@ -86,6 +86,12 @@ library.getPoolBuff.argtypes = [c_void_p]
 library.getTitanDebuff.restype = c_int
 library.getTitanDebuff.argtypes = [c_void_p]
 
+library.getSporeRate.restype = c_int
+library.getSporeRate.argtypes = [c_void_p]
+
+library.getMaxSpores.restype = c_int
+library.getMaxSpores.argtypes = [c_void_p]
+
 library.getPlayer.restype = c_void_p
 library.getPlayer.argtypes = [c_void_p, c_int]
 
