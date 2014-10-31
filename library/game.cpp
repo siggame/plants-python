@@ -10,6 +10,7 @@
 #include <sstream>
 #include <fstream>
 #include <memory>
+#include <vector>
 
 #include "game.h"
 #include "network.h"
@@ -20,6 +21,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
+
+#include <cmath>
 
 #ifdef _WIN32
 //Doh, namespace collision.
@@ -46,6 +49,12 @@ using std::stringstream;
 using std::string;
 using std::ofstream;
 
+//distance helper function
+int dist(int x1, int y1, int x2, int y2)
+{
+  return static_cast<int>(floor(sqrt(pow(x1 - x2, 2) + pow(y1 - y2, 2))));
+}
+
 DLLEXPORT Connection* createConnection()
 {
   Connection* c = new Connection;
@@ -64,12 +73,12 @@ DLLEXPORT Connection* createConnection()
   c->poolDamage = 0;
   c->poolBuff = 0;
   c->titanDebuff = 0;
-  c->sporeRate = 0;
-  c->maxSpores = 0;
   c->Players = NULL;
   c->PlayerCount = 0;
   c->Mappables = NULL;
   c->MappableCount = 0;
+  c->sporeRate = 0;
+  c->maxSpores = 0;
   c->Plants = NULL;
   c->PlantCount = 0;
   c->Mutations = NULL;
@@ -219,9 +228,20 @@ DLLEXPORT void getStatus(Connection* c)
   UNLOCK( &c->mutex );
 }
 
+struct point
+{
+  int x,y;
+  point(int x, int y):x(x),y(y){}
+};
 
 DLLEXPORT int playerGerminate(_Player* object, int x, int y, int mutation)
 {
+  const int spawnerNo = 1;
+  const int motherNo = 0;
+  //stuff being spawned this turn
+  static std::vector<point> thisTurnPlants;
+  static int turnNo;
+
   stringstream expr;
   expr << "(game-germinate " << object->id
        << " " << x
@@ -231,6 +251,85 @@ DLLEXPORT int playerGerminate(_Player* object, int x, int y, int mutation)
   LOCK( &object->_c->mutex);
   send_string(object->_c->socket, expr.str().c_str());
   UNLOCK( &object->_c->mutex);
+
+  Connection* c = object->_c;
+
+  if(turnNo != c->turnNumber)
+  {
+    thisTurnPlants.clear();
+    turnNo = c->turnNumber;
+  }
+
+  //Check for invalid mutation ID
+  if (mutation <= 0 || mutation >= 7)
+    return 0;
+
+  //Get Mutation object
+  _Mutation* mut_obj = getMutation(c,mutation);
+
+  if (mut_obj == NULL)
+    return 0;
+  else if (mut_obj->spores == 0)
+    return 0;
+  else if (object->spores < mut_obj->spores)
+    return 0;
+  else if (x < 0 || x >= getMapWidth(c) || y < 0 || y >= getMapHeight(c))
+    return 0;
+
+  //Make sure there are no plants on the tile
+  _Plant* a_plant;
+  for (int i = 0; i < getPlantCount(c); i++)
+  {
+    a_plant = getPlant(c,i);
+    if (a_plant->x == x && a_plant->y == y)
+      return 0;
+  }
+
+  //Check Plants Owned
+  int plantsOwned = 0;
+  for (int i = 0; i < getPlantCount(c); i++)
+  {
+    plantsOwned += (getPlant(c,i)->owner == getPlayerID(c));
+  }
+  if (plantsOwned >= getMaxPlants(c))
+    return 0;
+
+  //Check range
+  bool inRange = false;
+  for (int i = 0; i < getPlantCount(c); i++)
+  {
+    _Plant* checking = getPlant(c,i);
+    if (checking->x == x && checking->y == y)
+      return 0;
+
+    if ((checking->mutation == spawnerNo || checking->mutation == motherNo) &&
+        checking->owner == object->id)
+    {
+      if (dist(x, y , checking->x, checking->y) <= checking->range)
+      {
+        inRange = true;
+        break;       
+      }
+    }
+  }
+
+  if (!inRange)
+    return 0;
+
+  for(int i = 0; i < thisTurnPlants.size(); i++)
+  {
+    if(thisTurnPlants[i].x == x && thisTurnPlants[i].y == y)
+    {
+      return 0;
+    }
+  }
+
+  thisTurnPlants.push_back(point(x, y));
+
+  //TODO: Do some spawning-on-turn stuff with a list
+
+  object->spores -= mut_obj->spores;
+
   return 1;
 }
 
@@ -258,11 +357,84 @@ DLLEXPORT int plantRadiate(_Plant* object, int x, int y)
   LOCK( &object->_c->mutex);
   send_string(object->_c->socket, expr.str().c_str());
   UNLOCK( &object->_c->mutex);
+
+  Connection* c = object->_c;
+
+  //Check ownership
+  if (object->owner != getPlayerID(c))
+    return 0;
+
+  //Check radiates left
+  if (object->radiatesLeft <= 0)
+    return 0;
+
+  //Check radiation
+  if (object->rads > object->maxRads)
+    return 0;
+
+  //Check bounds
+  if (x < 0 || x >= getMapWidth(c) || y < 0 || y >= getMapHeight(c))
+    return 0;
+
+  // Check range
+  if (dist(x, y, object->x, object->y) > object->range)
+    return 0;
+
+  //Target plant
+  _Plant* target = NULL;
+  for (int i = 0; i < getPlantCount(c); ++i)
+  {
+    _Plant* candidate = getPlant(c,i);
+    if (candidate->x == x && candidate->y == y && candidate->mutation != 7 && candidate->rads < candidate->maxRads) 
+    {
+      if (candidate->mutation != 7) //if pool mutation
+      {
+        target = candidate;
+        break;
+      }
+    }
+  }
+
+  //If no target, return
+  if (target == NULL)
+    return 0;
+
+
+  if (object->mutation == 2 || object->mutation == 5)
+  {
+    if (target->owner != (1 - getPlayerID(c)))
+      return 0;
+
+    target->rads += object->strength;
+  }
+  else if (object->mutation == 3 || object->mutation == 4)
+  {
+    if (target->owner != getPlayerID(c))
+      return 0;
+    else if (target->mutation == 0)
+      return 0;
+    else if (object->mutation == 3 && target->mutation == 3)
+      return 0;
+
+
+    if (object->mutation == 4)  //heal if tumbleweed
+      target->rads = std::max(target->rads - object->strength, 0);
+    else if (object->mutation == 3) { //buff if soaker
+      int buff = static_cast<int>(1 + object->strength/4.0);
+      target->strength = std::max(target->strength + buff, target->maxStrength);
+    }
+  }
+
+  object->radiatesLeft--;
+
   return 1;
 }
 
 DLLEXPORT int plantUproot(_Plant* object, int x, int y)
 {
+  const int spawnerNo = 1;
+  const int tumbleNo = 4;
+
   stringstream expr;
   expr << "(game-uproot " << object->id
        << " " << x
@@ -271,7 +443,58 @@ DLLEXPORT int plantUproot(_Plant* object, int x, int y)
   LOCK( &object->_c->mutex);
   send_string(object->_c->socket, expr.str().c_str());
   UNLOCK( &object->_c->mutex);
+
+  Connection* c = object->_c;
+
+  if (object->owner != getPlayerID(c))
+    return 0;
+  else if (object->uprootsLeft <= 0)
+    return 0;
+  else if (!(x >= 0 && x < getMapWidth(c)) || !(y >= 0 || y < getMapHeight(c)))
+    return 0;
+
+  //Make sure we're not spawning on top of another plant
+  _Plant* a_plant;
+  for (int i = 0; i < getPlantCount(c); i++)
+  {
+    a_plant = getPlant(c,i);
+    if (a_plant->x == x && a_plant->y == y)
+      return 0;
+  }
+
+  //Find a spawner to move with
+  bool inRange;
+  if (object->mutation != tumbleNo)
+  {
+    inRange = false;
+
+    //identify and check every possible spawner
+    _Plant* checking_plant;
+    for (int i = 0; i < getPlantCount(c); i++)
+    {
+      checking_plant = getPlant(c,i);
+      if (checking_plant->mutation == spawnerNo && checking_plant->owner == getPlayerID(c) && checking_plant->id != object->id)
+      {
+        if (dist(object->x, object->y, checking_plant->x, checking_plant->y) <= checking_plant->range)
+        {
+          inRange = true;
+          break;
+        }
+      }
+    }
+    if (!inRange)
+      return 0;
+  }
+  else if (dist(object->x, object->y, x, y) > getBumbleweedSpeed(c))
+    return 0;
+
+  //update position
+  object->x = x;
+  object->y = y;
+  object->uprootsLeft--;
+
   return 1;
+
 }
 
 
@@ -484,11 +707,12 @@ DLLEXPORT int networkLoop(Connection* c)
           c->titanDebuff = atoi(sub->val);
           sub = sub->next;
 
-          c->sporeRate = atoi(sub->val);
-          sub = sub->next;
+           c->sporeRate = atoi(sub->val);
+           sub = sub->next;
 
-          c->maxSpores = atoi(sub->val);
-          sub = sub->next;
+           c->maxSpores = atoi(sub->val);
+           sub = sub->next;
+
 
         }
         else if(string(sub->val) == "Player")
