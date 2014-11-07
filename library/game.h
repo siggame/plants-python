@@ -40,7 +40,6 @@ struct Connection
   int bumbleweedSpeed;
   int poolDamage;
   int poolBuff;
-  int titanDebuff;
   int sporeRate;
   int maxSpores;
 
