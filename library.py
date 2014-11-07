@@ -83,9 +83,6 @@ library.getPoolDamage.argtypes = [c_void_p]
 library.getPoolBuff.restype = c_int
 library.getPoolBuff.argtypes = [c_void_p]
 
-library.getTitanDebuff.restype = c_int
-library.getTitanDebuff.argtypes = [c_void_p]
-
 library.getSporeRate.restype = c_int
 library.getSporeRate.argtypes = [c_void_p]
 
