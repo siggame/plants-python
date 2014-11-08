@@ -51,12 +51,17 @@ class AI(BaseAI):
     for plant in myPlants:
       #only try radiating if it's possible
       if plant.radiatesLeft > 0:
+
         #only heal or buff allies and attack enemies
         targetOwner = 1 - self.playerID
         if plant.mutation == self.BUMBLEWEED or plant.mutation == self.SOAKER:
           targetOwner = self.playerID
 
         for foe in self.plants:
+          #don't attack yourself!
+          if foe.id == plant.id:
+             continue
+             
           #if it's dead skip it
           if foe.rads >= foe.maxRads:
             continue
