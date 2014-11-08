@@ -397,7 +397,7 @@ DLLEXPORT int plantRadiate(_Plant* object, int x, int y)
     _Plant* candidate = getPlant(c,i);
     if (candidate->x == x && candidate->y == y && candidate->mutation != 7 && candidate->rads < candidate->maxRads) 
     {
-      if (candidate->mutation != 7) //if pool mutation
+      if (candidate->mutation != 7 && candidate->id != object->id)
       {
         target = candidate;
         break;
