@@ -45,6 +45,7 @@ struct _Plant
   int minStrength;
   int baseStrength;
   int maxStrength;
+  int hasSpoken;
 };
 struct _Mutation
 {

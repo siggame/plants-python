@@ -106,5 +106,8 @@ class BaseAI:
     return library.getMaxSpores(self.connection)
   #\endcond
   maxSpores = property(getMaxSpores)
+  def getUprootRange(self):
+    return library.getUprootRange(self.connection)
+  uprootRange = property(getUprootRange)
   def __init__(self, connection):
     self.connection = connection
